@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SSH Monitor Widget</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="title-bar">
+        <div class="title">Remote Linux Monitor</div>
+        <div class="title-actions">
+          <button id="btn-min" title="最小化">_</button>
+          <button id="btn-close" title="关闭">x</button>
+        </div>
+      </header>
+
+      <section class="layout">
+        <aside class="panel settings-panel">
+          <h3>连接配置</h3>
+          <div class="field-grid">
+            <label>Host<input id="host" placeholder="192.168.1.10" /></label>
+            <label>Port<input id="port" type="number" value="22" /></label>
+            <label>Username<input id="username" placeholder="root" /></label>
+            <label>Password<input id="password" type="password" /></label>
+            <label class="full">Private Key 路径<input id="privateKey" placeholder="C:\\Users\\me\\.ssh\\id_rsa" /></label>
+          </div>
+          <button id="btn-connect" class="primary">启动监控</button>
+
+          <h3>显示主题</h3>
+          <div class="field-grid">
+            <label>背景色<input id="bgColor" type="color" /></label>
+            <label>背景透明度<input id="bgOpacity" type="range" min="0.1" max="1" step="0.01" /></label>
+            <label>字体大小<input id="fontSize" type="number" min="10" max="28" /></label>
+            <label>字体<input id="fontFamily" placeholder="Segoe UI" /></label>
+            <label>CPU环颜色<input id="cpuColor" type="color" /></label>
+            <label>内存环颜色<input id="memColor" type="color" /></label>
+            <label>网络环颜色<input id="netColor" type="color" /></label>
+            <label class="full">背景图<input id="bgImage" placeholder="可选图片路径" /></label>
+          </div>
+          <div class="inline-actions">
+            <button id="btn-pick-image">选择背景图</button>
+            <label><input id="autoStart" type="checkbox" /> 开机自启动</label>
+          </div>
+          <button id="btn-save-theme">保存主题</button>
+        </aside>
+
+        <main class="panel metrics-panel">
+          <div id="status" class="status">等待连接...</div>
+          <div class="gauge-row">
+            <article class="gauge-card">
+              <h4>CPU</h4>
+              <div id="cpuGauge" class="ring"></div>
+              <div class="meta" id="cpuMeta">-</div>
+            </article>
+            <article class="gauge-card">
+              <h4>内存</h4>
+              <div id="memGauge" class="ring"></div>
+              <div class="meta" id="memMeta">-</div>
+            </article>
+            <article class="gauge-card">
+              <h4>网络</h4>
+              <div id="netGauge" class="ring"></div>
+              <div class="meta" id="netMeta">-</div>
+            </article>
+          </div>
+
+          <div class="tops-grid">
+            <article class="top-card">
+              <h4>CPU Top5 进程</h4>
+              <ul id="topCpuList"></ul>
+            </article>
+            <article class="top-card">
+              <h4>内存 Top5 进程</h4>
+              <ul id="topMemList"></ul>
+            </article>
+            <article class="top-card">
+              <h4>网络 Top5 进程</h4>
+              <ul id="topNetList"></ul>
+            </article>
+          </div>
+        </main>
+      </section>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

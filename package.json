@@ -1,0 +1,14 @@
+{
+  "name": "ssh-monitor-widget",
+  "version": "1.0.0",
+  "description": "Lightweight desktop widget for remote Linux monitoring over SSH.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "auto-launch": "^5.0.6",
+    "electron": "^31.7.7",
+    "ssh2": "^1.16.0"
+  }
+}
