@@ -10,40 +10,61 @@
     <div id="app" class="app-shell">
       <header class="title-bar">
         <div class="title">Remote Linux Monitor</div>
+        <nav class="title-nav">
+          <button id="tab-connection" class="title-tab active" type="button">连接配置</button>
+          <button id="tab-theme" class="title-tab" type="button">显示主题</button>
+        </nav>
         <div class="title-actions">
-          <button id="btn-min" title="最小化">_</button>
-          <button id="btn-close" title="关闭">x</button>
+          <button id="btn-min" title="最小化"><span class="win-icon">−</span></button>
+          <button id="btn-close" title="关闭"><span class="win-icon">×</span></button>
         </div>
       </header>
 
       <section class="layout">
         <aside class="panel settings-panel">
-          <h3>连接配置</h3>
-          <div class="field-grid">
-            <label>Host<input id="host" placeholder="192.168.1.10" /></label>
-            <label>Port<input id="port" type="number" value="22" /></label>
-            <label>Username<input id="username" placeholder="root" /></label>
-            <label>Password<input id="password" type="password" /></label>
-            <label class="full">Private Key 路径<input id="privateKey" placeholder="C:\\Users\\me\\.ssh\\id_rsa" /></label>
-          </div>
-          <button id="btn-connect" class="primary">启动监控</button>
+          <section id="view-connection" class="settings-view">
+            <div class="connection-search-wrap">
+              <input id="connectionSearch" class="connection-search" placeholder="搜索连接名称或 Host..." />
+              <button id="btn-clear-search" class="btn-clear-search" type="button" title="清空搜索">✕</button>
+            </div>
+            <div class="connection-switch">
+              <div id="connectionTabs" class="connection-tabs"></div>
+              <div class="connection-actions">
+                <button id="btn-fav-conn" type="button" title="收藏当前连接">☆</button>
+                <button id="btn-new-conn" type="button" title="新建连接">新建</button>
+                <button id="btn-delete-conn" type="button" title="删除当前连接">删除</button>
+              </div>
+            </div>
+            <div class="field-grid connection-fields">
+              <label class="full">连接名称<input id="connectionName" placeholder="例如: 生产机" /></label>
+              <label>Host<input id="host" placeholder="192.168.1.10" /></label>
+              <label>Port<input id="port" type="number" value="22" /></label>
+              <label>Username<input id="username" placeholder="root" /></label>
+              <label>Password<input id="password" type="password" /></label>
+              <label class="full">Private Key 路径<input id="privateKey" placeholder="C:\\Users\\me\\.ssh\\id_rsa" /></label>
+            </div>
+            <div class="inline-actions compact">
+              <label><input id="autoStart" type="checkbox" /> 开机自启动</label>
+            </div>
+            <button id="btn-connect" class="primary">启动监控</button>
+          </section>
 
-          <h3>显示主题</h3>
-          <div class="field-grid">
-            <label>背景色<input id="bgColor" type="color" /></label>
-            <label>背景透明度<input id="bgOpacity" type="range" min="0.1" max="1" step="0.01" /></label>
-            <label>字体大小<input id="fontSize" type="number" min="10" max="28" /></label>
-            <label>字体<input id="fontFamily" placeholder="Segoe UI" /></label>
-            <label>CPU环颜色<input id="cpuColor" type="color" /></label>
-            <label>内存环颜色<input id="memColor" type="color" /></label>
-            <label>网络环颜色<input id="netColor" type="color" /></label>
-            <label class="full">背景图<input id="bgImage" placeholder="可选图片路径" /></label>
-          </div>
-          <div class="inline-actions">
-            <button id="btn-pick-image">选择背景图</button>
-            <label><input id="autoStart" type="checkbox" /> 开机自启动</label>
-          </div>
-          <button id="btn-save-theme">保存主题</button>
+          <section id="view-theme" class="settings-view hidden">
+            <div class="field-grid">
+              <label>背景色<input id="bgColor" type="color" /></label>
+              <label>背景透明度<input id="bgOpacity" type="range" min="0.1" max="1" step="0.01" /></label>
+              <label>字体大小<input id="fontSize" type="number" min="10" max="28" /></label>
+              <label>字体<input id="fontFamily" placeholder="Segoe UI" /></label>
+              <label>CPU环颜色<input id="cpuColor" type="color" /></label>
+              <label>内存环颜色<input id="memColor" type="color" /></label>
+              <label>网络环颜色<input id="netColor" type="color" /></label>
+              <label class="full">背景图<input id="bgImage" placeholder="可选图片路径" /></label>
+            </div>
+            <div class="inline-actions">
+              <button id="btn-pick-image">选择背景图</button>
+            </div>
+            <button id="btn-save-theme">保存主题</button>
+          </section>
         </aside>
 
         <main class="panel metrics-panel">

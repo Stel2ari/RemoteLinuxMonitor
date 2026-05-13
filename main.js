@@ -13,6 +13,21 @@ let currentSSHConfig = null;
 
 const defaultSettings = {
   autoStart: true,
+  activeSettingsView: "connection",
+  activeConnectionId: "default",
+  connections: [
+    {
+      id: "default",
+      name: "默认连接",
+      ssh: {
+        host: "",
+        port: 22,
+        username: "",
+        password: "",
+        privateKey: ""
+      }
+    }
+  ],
   theme: {
     backgroundColor: "#0b1220",
     backgroundOpacity: 0.78,
@@ -39,9 +54,46 @@ function getSettingsPath() {
 }
 
 function mergeSettings(input) {
+  const nextConnections = Array.isArray(input?.connections) ? input.connections : [];
+  const legacySsh = input?.ssh || {};
+  const baseSsh = {
+    ...defaultSettings.connections[0].ssh,
+    ...legacySsh
+  };
+
+  const normalizedConnections = nextConnections
+    .map((item, index) => {
+      const id = String(item?.id || `conn-${index + 1}`);
+      return {
+        id,
+        name: (item?.name || "").trim() || `连接 ${index + 1}`,
+        ssh: {
+          ...defaultSettings.connections[0].ssh,
+          ...(item?.ssh || {})
+        }
+      };
+    })
+    .filter((item) => item.id);
+
+  if (normalizedConnections.length === 0) {
+    normalizedConnections.push({
+      id: "default",
+      name: "默认连接",
+      ssh: baseSsh
+    });
+  }
+
+  const requestedActiveId = input?.activeConnectionId;
+  const activeConnectionId = normalizedConnections.some((item) => item.id === requestedActiveId)
+    ? requestedActiveId
+    : normalizedConnections[0].id;
+  const activeConnection = normalizedConnections.find((item) => item.id === activeConnectionId);
+
   return {
     ...defaultSettings,
     ...input,
+    activeConnectionId,
+    connections: normalizedConnections,
     theme: {
       ...defaultSettings.theme,
       ...(input?.theme || {}),
@@ -52,7 +104,7 @@ function mergeSettings(input) {
     },
     ssh: {
       ...defaultSettings.ssh,
-      ...(input?.ssh || {})
+      ...(activeConnection?.ssh || {})
     }
   };
 }
@@ -387,16 +439,41 @@ app.whenReady().then(() => {
   ipcMain.handle("settings:save", (_, nextSettings) => {
     const merged = mergeSettings(nextSettings);
     saveSettings(merged);
-    currentSSHConfig = merged.ssh;
+    const active = merged.connections.find((item) => item.id === merged.activeConnectionId);
+    currentSSHConfig = active?.ssh || merged.ssh;
     ensureAutoLaunch(Boolean(merged.autoStart));
     startPolling();
     return merged;
   });
 
-  ipcMain.handle("monitor:start", (_, sshConfig) => {
-    currentSSHConfig = { ...sshConfig };
-    const saved = loadSettings();
-    saveSettings({ ...saved, ssh: currentSSHConfig });
+  ipcMain.handle("monitor:start", (_, payload) => {
+    const targetId = payload?.connectionId;
+    const inputSSH = payload?.sshConfig || {};
+    const saved = mergeSettings(loadSettings());
+    const selectedId = saved.connections.some((item) => item.id === targetId)
+      ? targetId
+      : saved.activeConnectionId;
+
+    const updatedConnections = saved.connections.map((item) =>
+      item.id === selectedId
+        ? {
+            ...item,
+            ssh: {
+              ...item.ssh,
+              ...inputSSH
+            }
+          }
+        : item
+    );
+
+    const merged = mergeSettings({
+      ...saved,
+      activeConnectionId: selectedId,
+      connections: updatedConnections
+    });
+    saveSettings(merged);
+    const active = merged.connections.find((item) => item.id === merged.activeConnectionId);
+    currentSSHConfig = active?.ssh || merged.ssh;
     startPolling();
     return true;
   });

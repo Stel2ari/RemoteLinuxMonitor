@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("desktopAPI", {
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
-  startMonitor: (sshConfig) => ipcRenderer.invoke("monitor:start", sshConfig),
+  startMonitor: (payload) => ipcRenderer.invoke("monitor:start", payload),
   pickImage: () => ipcRenderer.invoke("dialog:pickImage"),
   onMetrics: (handler) => {
     const wrapped = (_, payload) => handler(payload);

@@ -47,11 +47,48 @@ body {
   -webkit-app-region: drag;
   padding: 10px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 12px;
 }
 
 .title {
   font-weight: 600;
   letter-spacing: 0.4px;
+  min-width: max-content;
+}
+
+.title-nav {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin-right: auto;
+  margin-left: 8px;
+  align-self: flex-end;
+}
+
+.title-tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  padding: 7px 12px 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #a9bddb;
+  cursor: pointer;
+  font-size: 12px;
+  position: relative;
+  top: 1px;
+}
+
+.title-tab:hover {
+  color: #d7e5f8;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.title-tab.active {
+  color: #f5f8ff;
+  background: rgba(10, 18, 32, 0.7);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 2px 0 rgba(76, 201, 240, 0.8);
 }
 
 .title-actions {
@@ -68,6 +105,17 @@ body {
   cursor: pointer;
   background: rgba(255, 255, 255, 0.16);
   color: #e7f0ff;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  padding: 0;
+}
+
+.win-icon {
+  display: inline-block;
+  transform: translateY(-0.5px);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .layout {
@@ -87,6 +135,8 @@ body {
 .settings-panel {
   padding: 12px;
   overflow: auto;
+  overflow-x: hidden;
+  border-top-left-radius: 0;
 }
 
 .settings-panel h3 {
@@ -95,8 +145,127 @@ body {
 
 .field-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
+  min-width: 0;
+}
+
+.connection-switch {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.connection-search-wrap {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.connection-search {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+  color: #f5f8ff;
+  padding: 7px 34px 7px 12px;
+  outline: none;
+}
+
+.connection-search::placeholder {
+  color: rgba(231, 240, 255, 0.6);
+}
+
+.btn-clear-search {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  display: none;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.2);
+  color: #e7f0ff;
+  cursor: pointer;
+}
+
+.btn-clear-search.visible {
+  display: grid;
+}
+
+.connection-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  min-width: 0;
+}
+
+.connection-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.connection-tabs::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+}
+
+.connection-tab {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.2);
+  color: #e7f0ff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 120ms ease;
+}
+
+.connection-tab:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.connection-tab.active {
+  border-color: rgba(76, 201, 240, 0.55);
+  background: rgba(76, 201, 240, 0.26);
+}
+
+.connection-tab.kbd-active {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.connection-tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #7a8497;
+}
+
+.connection-tab-dot.favorite {
+  background: #ffcf57;
+  box-shadow: 0 0 6px rgba(255, 207, 87, 0.5);
+}
+
+.connection-tab-dot.online {
+  background: #80ed99;
+  box-shadow: 0 0 6px rgba(128, 237, 153, 0.45);
+}
+
+.connection-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+#btn-fav-conn.active {
+  background: rgba(255, 207, 87, 0.3);
 }
 
 .field-grid label {
@@ -118,6 +287,8 @@ body {
   color: #f5f8ff;
   padding: 8px;
   outline: none;
+  width: 100%;
+  min-width: 0;
 }
 
 .field-grid input[type="color"] {
@@ -130,6 +301,33 @@ body {
   align-items: center;
   justify-content: space-between;
   margin-top: 10px;
+}
+
+.inline-actions.compact {
+  justify-content: flex-start;
+}
+
+.settings-view.hidden {
+  display: none;
+}
+
+.settings-view.fade-in {
+  animation: settingsFadeIn 120ms ease-out;
+}
+
+@keyframes settingsFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.connection-fields label {
+  min-width: 0;
 }
 
 button {
