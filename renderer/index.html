@@ -27,26 +27,35 @@
               <input id="connectionSearch" class="connection-search" placeholder="搜索连接名称或 Host..." />
               <button id="btn-clear-search" class="btn-clear-search" type="button" title="清空搜索">✕</button>
             </div>
-            <div class="connection-switch">
-              <div id="connectionTabs" class="connection-tabs"></div>
-              <div class="connection-actions">
-                <button id="btn-fav-conn" type="button" title="收藏当前连接">☆</button>
-                <button id="btn-new-conn" type="button" title="新建连接">新建</button>
-                <button id="btn-delete-conn" type="button" title="删除当前连接">删除</button>
+            <div class="connection-layout">
+              <div class="connection-tabs-wrap">
+                <div id="connectionTabs" class="connection-tabs"></div>
+                <div class="connection-actions">
+                  <button id="btn-fav-conn" type="button" title="收藏当前连接">☆</button>
+                  <button id="btn-new-conn" type="button" title="新建连接">新建</button>
+                  <button id="btn-delete-conn" type="button" title="删除当前连接">删除</button>
+                </div>
               </div>
-            </div>
-            <div class="field-grid connection-fields">
-              <label class="full">连接名称<input id="connectionName" placeholder="例如: 生产机" /></label>
-              <label>Host<input id="host" placeholder="192.168.1.10" /></label>
-              <label>Port<input id="port" type="number" value="22" /></label>
-              <label>Username<input id="username" placeholder="root" /></label>
-              <label>Password<input id="password" type="password" /></label>
-              <label class="full">Private Key 路径<input id="privateKey" placeholder="C:\\Users\\me\\.ssh\\id_rsa" /></label>
+              <div class="connection-form">
+                <div class="field-grid connection-fields">
+                  <label class="full">连接名称<input id="connectionName" maxlength="20" placeholder="例如: 生产机" /></label>
+                  <label>Host<input id="host" placeholder="192.168.1.10" /></label>
+                  <label>Port<input id="port" type="number" value="22" /></label>
+                  <label>Username<input id="username" placeholder="root" /></label>
+                  <label>Password<input id="password" type="password" /></label>
+                  <label class="full">Private Key 路径<input id="privateKey" placeholder="C:\\Users\\me\\.ssh\\id_rsa" /></label>
+                </div>
+              </div>
             </div>
             <div class="inline-actions compact">
               <label><input id="autoStart" type="checkbox" /> 开机自启动</label>
+              <label><input id="alwaysOnTop" type="checkbox" /> 窗口置顶</label>
             </div>
-            <button id="btn-connect" class="primary">启动监控</button>
+            <div class="inline-actions monitor-actions">
+              <button id="btn-connect" class="primary">启动监控</button>
+              <button id="btn-test-connect" type="button">测试连接</button>
+            </div>
+            <div id="autoStartState" class="auto-start-state muted">开机自启动状态：-</div>
           </section>
 
           <section id="view-theme" class="settings-view hidden">
@@ -58,6 +67,7 @@
               <label>CPU环颜色<input id="cpuColor" type="color" /></label>
               <label>内存环颜色<input id="memColor" type="color" /></label>
               <label>网络环颜色<input id="netColor" type="color" /></label>
+              <label>网络带宽(Mbps)<input id="networkCapacity" type="number" min="1" step="1" /></label>
               <label class="full">背景图<input id="bgImage" placeholder="可选图片路径" /></label>
             </div>
             <div class="inline-actions">

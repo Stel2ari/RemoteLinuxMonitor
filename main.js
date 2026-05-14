@@ -3,16 +3,35 @@ const path = require("path");
 const fs = require("fs");
 const AutoLaunch = require("auto-launch");
 const { Client } = require("ssh2");
+const log = require("electron-log/main");
 
 const POLL_INTERVAL_MS = 5000;
 const DEFAULT_NETWORK_CAPACITY_MBPS = 10;
+const DEFAULT_RECONNECT_DELAY_MS = 5000;
+const MAX_RECONNECT_ATTEMPTS = 3;
 let mainWindow = null;
 let pollTimer = null;
 let lastNetworkTotals = null;
 let currentSSHConfig = null;
+let sshConn = null;
+let isSSHReady = false;
+let pendingConnect = null;
+let monitoringActive = false;
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+let reconnecting = false;
+let collectInFlight = false;
+let networkCapacityMbps = DEFAULT_NETWORK_CAPACITY_MBPS;
+let autoStartState = {
+  requested: false,
+  effective: false,
+  message: ""
+};
 
 const defaultSettings = {
   autoStart: true,
+  alwaysOnTop: true,
+  networkCapacityMbps: DEFAULT_NETWORK_CAPACITY_MBPS,
   activeSettingsView: "connection",
   activeConnectionId: "default",
   connections: [
@@ -66,7 +85,9 @@ function mergeSettings(input) {
       const id = String(item?.id || `conn-${index + 1}`);
       return {
         id,
-        name: (item?.name || "").trim() || `连接 ${index + 1}`,
+        name: String(item?.name || "")
+          .trim()
+          .slice(0, 20) || `连接 ${index + 1}`,
         ssh: {
           ...defaultSettings.connections[0].ssh,
           ...(item?.ssh || {})
@@ -109,6 +130,16 @@ function mergeSettings(input) {
   };
 }
 
+function sendMonitoringState(extra = {}) {
+  mainWindow?.webContents.send("monitor:state", {
+    active: monitoringActive,
+    reconnecting,
+    reconnectAttempts,
+    autoStart: autoStartState,
+    ...extra
+  });
+}
+
 function loadSettings() {
   try {
     const raw = fs.readFileSync(getSettingsPath(), "utf8");
@@ -123,6 +154,7 @@ function saveSettings(settings) {
 }
 
 function createWindow() {
+  const settings = loadSettings();
   mainWindow = new BrowserWindow({
     width: 1050,
     height: 760,
@@ -131,7 +163,7 @@ function createWindow() {
     frame: false,
     transparent: true,
     resizable: true,
-    alwaysOnTop: true,
+    alwaysOnTop: Boolean(settings.alwaysOnTop),
     skipTaskbar: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -143,26 +175,46 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
 }
 
-function ensureAutoLaunch(enabled) {
+async function ensureAutoLaunch(enabled) {
   const launcher = new AutoLaunch({
     name: "SSH Monitor Widget",
     path: app.getPath("exe")
   });
 
-  launcher
-    .isEnabled()
-    .then((alreadyEnabled) => {
-      if (enabled && !alreadyEnabled) {
-        return launcher.enable();
-      }
-      if (!enabled && alreadyEnabled) {
-        return launcher.disable();
-      }
-      return null;
-    })
-    .catch(() => {
-      // Ignore autostart configuration failures silently.
-    });
+  autoStartState = {
+    requested: Boolean(enabled),
+    effective: false,
+    message: ""
+  };
+
+  try {
+    const alreadyEnabled = await launcher.isEnabled();
+    if (enabled && !alreadyEnabled) {
+      await launcher.enable();
+    } else if (!enabled && alreadyEnabled) {
+      await launcher.disable();
+    }
+    const effective = await launcher.isEnabled();
+    autoStartState = {
+      requested: Boolean(enabled),
+      effective,
+      message: enabled && !effective ? "未生效，可能需要管理员权限" : ""
+    };
+    if (enabled && !effective) {
+      log.warn("Autostart requested but not effective");
+    } else {
+      log.info("Autostart state updated", autoStartState);
+    }
+  } catch (error) {
+    autoStartState = {
+      requested: Boolean(enabled),
+      effective: false,
+      message: `配置失败: ${error.message || "unknown error"}`
+    };
+    log.error("Autostart configuration failed", error);
+  }
+
+  sendMonitoringState();
 }
 
 function buildCollectorScript() {
@@ -235,44 +287,166 @@ fi
 `;
 }
 
-function execSSH(config, command) {
-  return new Promise((resolve, reject) => {
+function buildConnectOptions(config) {
+  return {
+    host: config.host,
+    port: Number(config.port || 22),
+    username: config.username,
+    password: config.password || undefined,
+    privateKey: config.privateKey ? fs.readFileSync(config.privateKey, "utf8") : undefined,
+    readyTimeout: 12000,
+    keepaliveInterval: 8000,
+    keepaliveCountMax: 3
+  };
+}
+
+function clearReconnectTimer() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+function closeActiveConnection() {
+  clearReconnectTimer();
+  pendingConnect = null;
+  const closing = sshConn;
+  if (sshConn) {
+    try {
+      sshConn.removeAllListeners();
+      sshConn.end();
+    } catch {
+      // Ignore close errors during teardown.
+    }
+  }
+  sshConn = null;
+  isSSHReady = false;
+  return closing;
+}
+
+function scheduleReconnect(reason) {
+  if (!monitoringActive || reconnecting) {
+    return;
+  }
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    monitoringActive = false;
+    reconnecting = false;
+    clearReconnectTimer();
+    mainWindow?.webContents.send("metrics:update", {
+      ok: false,
+      error: `连接失败，已重试 ${MAX_RECONNECT_ATTEMPTS} 次：${reason || "unknown"}`
+    });
+    sendMonitoringState();
+    return;
+  }
+  reconnecting = true;
+  reconnectAttempts += 1;
+  sendMonitoringState({ reconnectReason: reason || "" });
+  clearReconnectTimer();
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    try {
+      await ensureConnection(currentSSHConfig);
+      reconnecting = false;
+      reconnectAttempts = 0;
+      sendMonitoringState();
+      log.info("SSH reconnect succeeded");
+    } catch (error) {
+      reconnecting = false;
+      log.warn("SSH reconnect failed", error?.message || error);
+      scheduleReconnect(error?.message || "reconnect failed");
+    }
+  }, DEFAULT_RECONNECT_DELAY_MS);
+}
+
+function ensureConnection(config) {
+  if (!config?.host || !config?.username) {
+    return Promise.reject(new Error("请先填写 Host 和 Username"));
+  }
+  if (isSSHReady && sshConn) {
+    return Promise.resolve(sshConn);
+  }
+  if (pendingConnect) {
+    return pendingConnect;
+  }
+
+  pendingConnect = new Promise((resolve, reject) => {
     const conn = new Client();
-    const chunks = [];
-    const errors = [];
+    let settled = false;
+
+    const finalizeReject = (error) => {
+      if (settled) return;
+      settled = true;
+      pendingConnect = null;
+      isSSHReady = false;
+      if (sshConn === conn) {
+        sshConn = null;
+      }
+      reject(error);
+    };
 
     conn
       .on("ready", () => {
-        conn.exec(command, (execError, stream) => {
-          if (execError) {
-            conn.end();
-            reject(execError);
+        settled = true;
+        sshConn = conn;
+        isSSHReady = true;
+        pendingConnect = null;
+        reconnectAttempts = 0;
+        log.info("SSH connected", { host: config.host, user: config.username });
+        resolve(conn);
+      })
+      .on("error", (error) => {
+        isSSHReady = false;
+        if (!settled) {
+          finalizeReject(error);
+          return;
+        }
+        log.warn("SSH connection error", error?.message || error);
+        scheduleReconnect(error?.message || "ssh error");
+      })
+      .on("close", () => {
+        isSSHReady = false;
+        if (sshConn === conn) {
+          sshConn = null;
+        }
+        if (!settled) {
+          finalizeReject(new Error("SSH 连接已关闭"));
+          return;
+        }
+        scheduleReconnect("SSH 连接断开");
+      });
+
+    try {
+      conn.connect(buildConnectOptions(config));
+    } catch (error) {
+      finalizeReject(error);
+    }
+  });
+
+  return pendingConnect;
+}
+
+async function execSSH(config, command) {
+  const conn = await ensureConnection(config);
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const errors = [];
+    conn.exec(command, (execError, stream) => {
+      if (execError) {
+        reject(execError);
+        return;
+      }
+      stream
+        .on("close", () => {
+          if (chunks.length === 0 && errors.length > 0) {
+            reject(new Error(errors.join("")));
             return;
           }
-
-          stream
-            .on("close", () => {
-              conn.end();
-              if (chunks.length === 0 && errors.length > 0) {
-                reject(new Error(errors.join("")));
-                return;
-              }
-              resolve(chunks.join(""));
-            })
-            .on("data", (data) => chunks.push(data.toString()));
-
-          stream.stderr.on("data", (data) => errors.push(data.toString()));
-        });
-      })
-      .on("error", (error) => reject(error))
-      .connect({
-        host: config.host,
-        port: Number(config.port || 22),
-        username: config.username,
-        password: config.password || undefined,
-        privateKey: config.privateKey ? fs.readFileSync(config.privateKey, "utf8") : undefined,
-        readyTimeout: 12000
-      });
+          resolve(chunks.join(""));
+        })
+        .on("data", (data) => chunks.push(data.toString()));
+      stream.stderr.on("data", (data) => errors.push(data.toString()));
+    });
   });
 }
 
@@ -315,7 +489,7 @@ function parseCollectorOutput(raw, previousTotals) {
     rxRate = deltaRx / (POLL_INTERVAL_MS / 1000);
     txRate = deltaTx / (POLL_INTERVAL_MS / 1000);
     const totalRate = rxRate + txRate;
-    const refBytesPerSec = (DEFAULT_NETWORK_CAPACITY_MBPS * 1000 * 1000) / 8;
+    const refBytesPerSec = (networkCapacityMbps * 1000 * 1000) / 8;
     netUsagePercent = Math.min(100, (totalRate / refBytesPerSec) * 100);
   }
 
@@ -405,30 +579,64 @@ function startPolling() {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  clearReconnectTimer();
+  reconnectAttempts = 0;
+  reconnecting = false;
+  collectInFlight = false;
   lastNetworkTotals = null;
 
   if (!currentSSHConfig?.host || !currentSSHConfig?.username) {
+    monitoringActive = false;
+    sendMonitoringState();
     return;
   }
 
   const tick = async () => {
+    if (!monitoringActive || collectInFlight || reconnecting) {
+      return;
+    }
+    collectInFlight = true;
     try {
       const metrics = await collectMetrics(currentSSHConfig);
       mainWindow?.webContents.send("metrics:update", { ok: true, data: metrics });
+      reconnectAttempts = 0;
     } catch (error) {
+      scheduleReconnect(error.message || "collect failed");
       mainWindow?.webContents.send("metrics:update", {
         ok: false,
         error: error.message || "SSH collect failed."
       });
+      log.warn("Collect metrics failed", error?.message || error);
+    } finally {
+      collectInFlight = false;
     }
   };
 
+  monitoringActive = true;
+  sendMonitoringState();
   tick();
   pollTimer = setInterval(tick, POLL_INTERVAL_MS);
+  log.info("Polling started");
+}
+
+function stopPolling() {
+  monitoringActive = false;
+  reconnecting = false;
+  reconnectAttempts = 0;
+  collectInFlight = false;
+  clearReconnectTimer();
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  closeActiveConnection();
+  sendMonitoringState();
+  log.info("Polling stopped");
 }
 
 app.whenReady().then(() => {
   const settings = loadSettings();
+  networkCapacityMbps = Math.max(1, Number(settings.networkCapacityMbps || DEFAULT_NETWORK_CAPACITY_MBPS));
   ensureAutoLaunch(Boolean(settings.autoStart));
   currentSSHConfig = settings.ssh;
 
@@ -436,13 +644,31 @@ app.whenReady().then(() => {
 
   ipcMain.handle("settings:get", () => loadSettings());
 
-  ipcMain.handle("settings:save", (_, nextSettings) => {
+  ipcMain.handle("settings:save", async (_, nextSettings) => {
+    const previous = mergeSettings(loadSettings());
     const merged = mergeSettings(nextSettings);
     saveSettings(merged);
     const active = merged.connections.find((item) => item.id === merged.activeConnectionId);
     currentSSHConfig = active?.ssh || merged.ssh;
-    ensureAutoLaunch(Boolean(merged.autoStart));
-    startPolling();
+    networkCapacityMbps = Math.max(1, Number(merged.networkCapacityMbps || DEFAULT_NETWORK_CAPACITY_MBPS));
+    mainWindow?.setAlwaysOnTop(Boolean(merged.alwaysOnTop));
+    await ensureAutoLaunch(Boolean(merged.autoStart));
+    if (monitoringActive) {
+      const prevActive = previous.connections.find((item) => item.id === previous.activeConnectionId);
+      const prevSSH = prevActive?.ssh || previous.ssh || {};
+      const nextSSH = active?.ssh || merged.ssh || {};
+      const sshChanged =
+        prevSSH.host !== nextSSH.host ||
+        Number(prevSSH.port || 22) !== Number(nextSSH.port || 22) ||
+        prevSSH.username !== nextSSH.username ||
+        prevSSH.password !== nextSSH.password ||
+        prevSSH.privateKey !== nextSSH.privateKey;
+      if (sshChanged) {
+        closeActiveConnection();
+      }
+      startPolling();
+    }
+    log.info("Settings saved");
     return merged;
   });
 
@@ -474,9 +700,67 @@ app.whenReady().then(() => {
     saveSettings(merged);
     const active = merged.connections.find((item) => item.id === merged.activeConnectionId);
     currentSSHConfig = active?.ssh || merged.ssh;
+    closeActiveConnection();
     startPolling();
     return true;
   });
+
+  ipcMain.handle("monitor:stop", () => {
+    stopPolling();
+    return true;
+  });
+
+  ipcMain.handle("monitor:test", async (_, payload) => {
+    const startedAt = Date.now();
+    const sshConfig = payload?.sshConfig || {};
+    const probe = `bash -lc "echo ok"`;
+    let tempConn = null;
+    try {
+      const output = await new Promise((resolve, reject) => {
+        const conn = new Client();
+        tempConn = conn;
+        const chunks = [];
+        conn
+          .on("ready", () => {
+            conn.exec(probe, (execError, stream) => {
+              if (execError) {
+                conn.end();
+                reject(execError);
+                return;
+              }
+              stream
+                .on("close", () => {
+                  conn.end();
+                  resolve(chunks.join(""));
+                })
+                .on("data", (data) => chunks.push(data.toString()));
+            });
+          })
+          .on("error", (error) => reject(error))
+          .connect(buildConnectOptions(sshConfig));
+      });
+      log.info("SSH test succeeded", { elapsedMs: Date.now() - startedAt, output: String(output).trim() });
+      return { ok: true, elapsedMs: Date.now() - startedAt };
+    } catch (error) {
+      log.warn("SSH test failed", error?.message || error);
+      return { ok: false, elapsedMs: Date.now() - startedAt, error: error.message || "SSH 测试失败" };
+    } finally {
+      if (tempConn) {
+        try {
+          tempConn.end();
+        } catch {
+          // Ignore close errors.
+        }
+      }
+    }
+  });
+
+  ipcMain.handle("monitor:state", () => ({
+    active: monitoringActive,
+    reconnecting,
+    reconnectAttempts,
+    autoStart: autoStartState
+  }));
 
   ipcMain.handle("dialog:pickImage", async () => {
     const result = await dialog.showOpenDialog({
@@ -493,9 +777,11 @@ app.whenReady().then(() => {
   ipcMain.on("window:close", () => mainWindow?.close());
 
   startPolling();
+  sendMonitoringState();
 });
 
 app.on("window-all-closed", () => {
+  stopPolling();
   if (process.platform !== "darwin") {
     app.quit();
   }

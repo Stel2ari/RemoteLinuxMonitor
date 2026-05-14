@@ -150,11 +150,26 @@ body {
   min-width: 0;
 }
 
-.connection-switch {
+.connection-layout {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 118px 1fr;
+  gap: 0;
   margin-bottom: 8px;
+  min-height: 220px;
+  align-items: stretch;
+  border-radius: 0 12px 12px 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.connection-tabs-wrap {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  padding: 8px 0 8px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .connection-search-wrap {
@@ -199,46 +214,57 @@ body {
 
 .connection-tabs {
   display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
   min-width: 0;
-}
-
-.connection-tabs::-webkit-scrollbar {
-  height: 6px;
-}
-
-.connection-tabs::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
+  flex: 1;
 }
 
 .connection-tab {
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(0, 0, 0, 0.2);
-  color: #e7f0ff;
-  border-radius: 999px;
-  padding: 6px 10px;
+  position: relative;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  color: #a9bddb;
+  border-radius: 8px 0 0 8px;
+  padding: 7px 8px 7px 10px;
   cursor: pointer;
   white-space: nowrap;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
-  transition: all 120ms ease;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  width: 100%;
+  justify-content: flex-start;
+  margin-right: -1px;
+  z-index: 0;
+}
+
+.connection-tab span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .connection-tab:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: #d7e5f8;
 }
 
 .connection-tab.active {
-  border-color: rgba(76, 201, 240, 0.55);
-  background: rgba(76, 201, 240, 0.26);
+  color: #f5f8ff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  border-right-color: transparent;
+  z-index: 2;
+  box-shadow: inset 3px 0 0 #4cc9f0, 0 1px 0 rgba(0, 0, 0, 0.2);
 }
 
-.connection-tab.kbd-active {
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+.connection-tab.kbd-active:not(.active) {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.connection-tab.kbd-active.active {
+  box-shadow: inset 3px 0 0 #4cc9f0, 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 .connection-tab-dot {
@@ -259,9 +285,23 @@ body {
 }
 
 .connection-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 6px;
-  align-items: center;
+  align-items: stretch;
+}
+
+.connection-actions button {
+  width: 100%;
+}
+
+.connection-form {
+  min-width: 0;
+  padding: 10px 10px 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
 }
 
 #btn-fav-conn.active {
@@ -305,6 +345,7 @@ body {
 
 .inline-actions.compact {
   justify-content: flex-start;
+  gap: 12px;
 }
 
 .settings-view.hidden {
@@ -340,9 +381,13 @@ button {
 }
 
 button.primary {
-  width: 100%;
+  width: auto;
   background: rgba(76, 201, 240, 0.35);
-  margin: 10px 0 6px;
+  margin: 10px 0 6px 0;
+}
+
+button.primary.danger {
+  background: rgba(247, 37, 133, 0.42);
 }
 
 #btn-save-theme {
@@ -360,6 +405,30 @@ button.primary {
 .status {
   font-size: 13px;
   color: #97c3ff;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px 8px;
+  transition: border-color 180ms ease, background-color 180ms ease;
+}
+
+.status.status-error {
+  border-color: rgba(255, 104, 125, 0.65);
+  background: rgba(255, 80, 102, 0.12);
+}
+
+.metrics-panel-error {
+  box-shadow: inset 0 0 0 1px rgba(255, 104, 125, 0.45);
+}
+
+.monitor-actions {
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.auto-start-state {
+  font-size: 12px;
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .gauge-row {

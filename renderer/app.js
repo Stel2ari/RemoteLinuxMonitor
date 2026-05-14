@@ -4,7 +4,18 @@ const state = {
   selectedConnection: null,
   onlineIds: new Set(),
   connectionQuery: "",
-  highlightedConnectionId: ""
+  highlightedConnectionId: "",
+  monitorState: {
+    active: false,
+    reconnecting: false,
+    reconnectAttempts: 0,
+    autoStart: {
+      requested: false,
+      effective: false,
+      message: ""
+    }
+  },
+  errorStreak: 0
 };
 
 const el = {
@@ -27,6 +38,7 @@ const el = {
   btnNewConn: document.getElementById("btn-new-conn"),
   btnDeleteConn: document.getElementById("btn-delete-conn"),
   autoStart: document.getElementById("autoStart"),
+  alwaysOnTop: document.getElementById("alwaysOnTop"),
   bgColor: document.getElementById("bgColor"),
   bgOpacity: document.getElementById("bgOpacity"),
   fontSize: document.getElementById("fontSize"),
@@ -34,8 +46,11 @@ const el = {
   cpuColor: document.getElementById("cpuColor"),
   memColor: document.getElementById("memColor"),
   netColor: document.getElementById("netColor"),
+  networkCapacity: document.getElementById("networkCapacity"),
   bgImage: document.getElementById("bgImage"),
   btnConnect: document.getElementById("btn-connect"),
+  btnTestConnect: document.getElementById("btn-test-connect"),
+  autoStartState: document.getElementById("autoStartState"),
   btnSaveTheme: document.getElementById("btn-save-theme"),
   btnPickImage: document.getElementById("btn-pick-image"),
   btnMin: document.getElementById("btn-min"),
@@ -48,7 +63,8 @@ const el = {
   netMeta: document.getElementById("netMeta"),
   topCpuList: document.getElementById("topCpuList"),
   topMemList: document.getElementById("topMemList"),
-  topNetList: document.getElementById("topNetList")
+  topNetList: document.getElementById("topNetList"),
+  metricsPanel: document.querySelector(".metrics-panel")
 };
 
 function clamp(val, min, max) {
@@ -109,11 +125,12 @@ function applyTheme(theme) {
 function settingsFromForm() {
   const selectedId = state.selectedConnectionId || state.settings.activeConnectionId;
   const now = Date.now();
+  const normalizedName = (el.connectionName.value || "").trim().slice(0, 20);
   const nextConnections = (state.settings.connections || []).map((item) =>
     item.id === selectedId
       ? {
           ...item,
-          name: el.connectionName.value.trim() || item.name,
+          name: normalizedName || item.name,
           lastUsedAt: now,
           ssh: {
             host: el.host.value.trim(),
@@ -129,6 +146,8 @@ function settingsFromForm() {
   return {
     ...state.settings,
     autoStart: el.autoStart.checked,
+    alwaysOnTop: el.alwaysOnTop.checked,
+    networkCapacityMbps: Number(el.networkCapacity.value || 10),
     activeSettingsView: state.settings.activeSettingsView || "connection",
     activeConnectionId: selectedId,
     connections: nextConnections,
@@ -146,6 +165,43 @@ function settingsFromForm() {
       }
     }
   };
+}
+
+function updateMonitorButton() {
+  if (state.monitorState.active) {
+    el.btnConnect.textContent = "停止监控";
+    el.btnConnect.classList.add("danger");
+  } else {
+    el.btnConnect.textContent = "启动监控";
+    el.btnConnect.classList.remove("danger");
+  }
+}
+
+function renderAutoStartState() {
+  const info = state.monitorState.autoStart || {};
+  let text = "开机自启动状态：";
+  if (info.requested) {
+    text += info.effective ? "已开启" : "未生效";
+  } else {
+    text += "已关闭";
+  }
+  if (info.message) {
+    text += `（${info.message}）`;
+  }
+  el.autoStartState.textContent = text;
+}
+
+function updateMonitorState(nextState = {}) {
+  state.monitorState = {
+    ...state.monitorState,
+    ...nextState,
+    autoStart: {
+      ...(state.monitorState.autoStart || {}),
+      ...(nextState.autoStart || {})
+    }
+  };
+  updateMonitorButton();
+  renderAutoStartState();
 }
 
 function getDisplayConnections(settings) {
@@ -191,9 +247,10 @@ function renderConnectionTabs(settings) {
       const kbdClass = item.id === state.highlightedConnectionId ? "kbd-active" : "";
       const favClass = item.favorite ? "favorite" : "";
       const onlineClass = state.onlineIds.has(item.id) ? "online" : "";
-      return `<button type="button" class="connection-tab ${activeClass} ${kbdClass}" data-conn-id="${item.id}" title="${item.name}">
+      const safeName = String(item.name || "").slice(0, 20);
+      return `<button type="button" class="connection-tab ${activeClass} ${kbdClass}" data-conn-id="${item.id}" title="${safeName}">
         <span class="connection-tab-dot ${favClass} ${onlineClass}"></span>
-        <span>${item.name}</span>
+        <span>${safeName}</span>
       </button>`;
     })
     .join("");
@@ -216,6 +273,7 @@ function fillForm(settings) {
   el.password.value = ssh.password;
   el.privateKey.value = ssh.privateKey;
   el.autoStart.checked = !!settings.autoStart;
+  el.alwaysOnTop.checked = settings.alwaysOnTop !== false;
   el.bgColor.value = settings.theme.backgroundColor;
   el.bgOpacity.value = settings.theme.backgroundOpacity;
   el.fontSize.value = settings.theme.fontSize;
@@ -224,6 +282,7 @@ function fillForm(settings) {
   el.cpuColor.value = settings.theme.ringColors.cpu;
   el.memColor.value = settings.theme.ringColors.memory;
   el.netColor.value = settings.theme.ringColors.network;
+  el.networkCapacity.value = Number(settings.networkCapacityMbps || 10);
 }
 
 function randomConnId() {
@@ -254,6 +313,8 @@ function renderMetrics(data) {
 function setStatus(text, isError = false) {
   el.status.textContent = text;
   el.status.style.color = isError ? "#ff9ea7" : "#97c3ff";
+  el.status.classList.toggle("status-error", isError);
+  el.metricsPanel.classList.toggle("metrics-panel-error", isError);
 }
 
 function setSettingsView(mode) {
@@ -290,11 +351,16 @@ async function activateConnection(targetId, messagePrefix = "已切换到连接"
   state.settings = await window.desktopAPI.saveSettings(next);
   fillForm(state.settings);
   const selected = state.settings.connections.find((item) => item.id === targetId);
-  setStatus(`${messagePrefix}：${selected?.name || "-"}`);
+  if (state.monitorState.active) {
+    setStatus(`已切换并继续监控：${selected?.name || "-"}`);
+  } else {
+    setStatus(`${messagePrefix}：${selected?.name || "-"}`);
+  }
 }
 
 async function boot() {
   state.settings = await window.desktopAPI.getSettings();
+  updateMonitorState(await window.desktopAPI.getMonitorState());
   fillForm(state.settings);
   applyTheme(state.settings.theme);
 
@@ -303,16 +369,48 @@ async function boot() {
     state.selectedConnectionId = state.settings.activeConnectionId;
     applyTheme(state.settings.theme);
     fillForm(state.settings);
+    updateMonitorState(await window.desktopAPI.getMonitorState());
   };
 
+  el.autoStart.addEventListener("change", async () => {
+    await persist();
+    setStatus(el.autoStart.checked ? "已开启开机自启动。" : "已关闭开机自启动。");
+  });
+
+  el.alwaysOnTop.addEventListener("change", async () => {
+    await persist();
+    setStatus(el.alwaysOnTop.checked ? "已开启窗口置顶。" : "已关闭窗口置顶。");
+  });
+
   el.btnConnect.addEventListener("click", async () => {
+    if (state.monitorState.active) {
+      await window.desktopAPI.stopMonitor();
+      updateMonitorState({ active: false, reconnecting: false, reconnectAttempts: 0 });
+      setStatus("监控已停止。");
+      return;
+    }
     await persist();
     const selected = state.settings.connections.find((item) => item.id === state.settings.activeConnectionId);
     await window.desktopAPI.startMonitor({
       connectionId: state.settings.activeConnectionId,
       sshConfig: selected?.ssh || state.settings.ssh
     });
+    updateMonitorState({ active: true, reconnecting: false, reconnectAttempts: 0 });
     setStatus(`监控已启动：${selected?.name || "当前连接"}（每5秒刷新）`);
+  });
+
+  el.btnTestConnect.addEventListener("click", async () => {
+    const draft = settingsFromForm();
+    const selected = draft.connections.find((item) => item.id === draft.activeConnectionId);
+    setStatus("正在测试 SSH 连接...");
+    const result = await window.desktopAPI.testMonitor({
+      sshConfig: selected?.ssh || draft.ssh
+    });
+    if (result.ok) {
+      setStatus(`连接测试成功，握手耗时 ${result.elapsedMs}ms`);
+    } else {
+      setStatus(`连接测试失败：${result.error || "unknown"}（${result.elapsedMs}ms）`, true);
+    }
   });
 
   el.btnSaveTheme.addEventListener("click", async () => {
@@ -409,6 +507,9 @@ async function boot() {
   });
 
   el.connectionName.addEventListener("blur", async () => {
+    if (el.connectionName.value.length > 20) {
+      el.connectionName.value = el.connectionName.value.slice(0, 20);
+    }
     await persist();
   });
 
@@ -431,6 +532,10 @@ async function boot() {
   });
 
   el.btnNewConn.addEventListener("click", async () => {
+    if ((state.settings.connections || []).length >= 5) {
+      setStatus("最多只能创建 5 个连接。", true);
+      return;
+    }
     const newId = randomConnId();
     const nextConnections = [
       ...(state.settings.connections || []),
@@ -479,15 +584,25 @@ async function boot() {
 
   window.desktopAPI.onMetrics((payload) => {
     if (!payload.ok) {
+      state.errorStreak += 1;
       state.onlineIds.delete(state.settings.activeConnectionId);
-      setStatus(`采集失败: ${payload.error}`, true);
+      const suffix = state.errorStreak >= 3 ? "（已连续失败，请检查 SSH 配置或网络）" : "";
+      setStatus(`采集失败: ${payload.error}${suffix}`, true);
       renderConnectionTabs(state.settings);
       return;
     }
+    state.errorStreak = 0;
     state.onlineIds.add(state.settings.activeConnectionId);
     renderConnectionTabs(state.settings);
-    setStatus(`上次更新: ${new Date(payload.data.timestamp).toLocaleTimeString()}`);
+    setStatus(`上次更新: ${new Date(payload.data.timestamp).toLocaleString()}`);
     renderMetrics(payload.data);
+  });
+
+  window.desktopAPI.onMonitorState((nextState) => {
+    updateMonitorState(nextState);
+    if (nextState.reconnecting) {
+      setStatus(`连接断开，正在重连...（第 ${nextState.reconnectAttempts || 0} 次）`, true);
+    }
   });
 
   setSettingsView(state.settings.activeSettingsView || "connection");
